@@ -196,4 +196,4 @@ export const styles = `
     color: #64748b;
     font-size: 12px;
   }
-`;
+`

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState } from 'react'
 import {
   defaultSettings,
   getSettings,
@@ -6,23 +6,23 @@ import {
   type ExtensionSettings,
   type PlaybackMode,
   type VoiceName,
-  voiceNames,
-} from "@/lib/settings";
+  voiceNames
+} from '@/lib/settings'
 
 function App() {
-  const [settings, setSettings] = useState<ExtensionSettings>(defaultSettings);
-  const [saved, setSaved] = useState(false);
+  const [settings, setSettings] = useState<ExtensionSettings>(defaultSettings)
+  const [saved, setSaved] = useState(false)
 
   useEffect(() => {
-    void getSettings().then(setSettings);
-  }, []);
+    void getSettings().then(setSettings)
+  }, [])
 
   async function updateSettings(next: Partial<ExtensionSettings>) {
-    const updated = { ...settings, ...next };
-    setSettings(updated);
-    await saveSettings(next);
-    setSaved(true);
-    window.setTimeout(() => setSaved(false), 1400);
+    const updated = { ...settings, ...next }
+    setSettings(updated)
+    await saveSettings(next)
+    setSaved(true)
+    window.setTimeout(() => setSaved(false), 1400)
   }
 
   return (
@@ -31,8 +31,8 @@ function App() {
         <div>
           <h1>Natural Translator</h1>
         </div>
-        <span className={settings.openaiApiKey ? "status-ready" : "status-missing"}>
-          {settings.openaiApiKey ? "Ready" : "Needs key"}
+        <span className={settings.openaiApiKey ? 'status-ready' : 'status-missing'}>
+          {settings.openaiApiKey ? 'Ready' : 'Needs key'}
         </span>
       </header>
 
@@ -101,7 +101,7 @@ function App() {
         {saved ? <strong>Saved</strong> : null}
       </footer>
     </main>
-  );
+  )
 }
 
-export default App;
+export default App
