@@ -1,8 +1,8 @@
 {
   "name": "natural-translate-extension",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
-  "description": "Chromium extension for OpenAI translation, pronunciation, and follow-up questions.",
+  "description": "Browser extension for OpenAI translation, pronunciation, and follow-up questions.",
   "type": "module",
   "scripts": {
     "dev": "wxt",
@@ -23,8 +23,8 @@
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@wxt-dev/module-react": "^1.1.5",
-    "typescript": "^5.9.3",
-    "vite-plus": "latest",
+    "typescript": "^6.0.3",
+    "vite-plus": "^0.1.24",
     "wxt": "^0.20.26"
   },
   "overrides": {
