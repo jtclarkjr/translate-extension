@@ -55,10 +55,7 @@ const audioCache = new Map<string, string>();
 export default defineContentScript({
   matches: ["<all_urls>"],
   main() {
-    document.addEventListener("mouseup", handleSelectionChange);
-    document.addEventListener("keyup", handleSelectionChange);
-    document.addEventListener("selectionchange", scheduleSelectionChange);
-    document.addEventListener("scroll", hideButton, true);
+    removeFloatingButtons();
     document.addEventListener("pointerdown", handleDocumentPointerDown, true);
     document.addEventListener("pointermove", handleDocumentPointerMove, true);
     document.addEventListener("pointerup", stopDragging, true);
@@ -71,39 +68,9 @@ export default defineContentScript({
   },
 });
 
-function scheduleSelectionChange() {
-  window.setTimeout(handleSelectionChange, 80);
-}
-
-function handleSelectionChange(event?: Event) {
-  if (
-    event?.target instanceof Node &&
-    Boolean(shadow?.querySelector(".nt-panel")?.contains(event.target))
-  ) {
-    return;
-  }
-
-  const selectionState = getSelectionState(MAX_SELECTION_CHARS);
-
-  if (!selectionState) {
-    if (!hasPanel()) {
-      hideButton();
-    }
-    return;
-  }
-
-  if (!hasPanel()) {
-    renderButton(selectionState, getButtonTop(selectionState.rect));
-  }
-}
-
 function openPanelFromMessage(text: string) {
   const currentSelection = getSelectionState(MAX_SELECTION_CHARS);
   void openPanelFromText(text, currentSelection?.rect || getFallbackRect());
-}
-
-function hasPanel() {
-  return Boolean(panelState);
 }
 
 function ensureRoot() {
@@ -129,45 +96,16 @@ function ensureRoot() {
   return shadow;
 }
 
-function hideButton() {
+function removeFloatingButtons() {
   shadow?.querySelector(".nt-floating-button")?.remove();
-}
-
-function renderButton(selection: SelectionState, top: number) {
-  const shadowRoot = ensureRoot();
-  const button = document.createElement("button");
-  button.className = "nt-floating-button";
-  button.type = "button";
-  button.textContent = "Translate";
-  setElementStyles(button, {
-    position: "fixed",
-    zIndex: "2147483647",
-    boxSizing: "border-box",
-    pointerEvents: "auto",
-    border: "1px solid #1e40af",
-    borderRadius: "999px",
-    background: "#2563eb",
-    color: "#ffffff",
-    cursor: "pointer",
-    fontFamily: FONT_STACK,
-    fontSize: "13px",
-    fontWeight: "800",
-    lineHeight: "1",
-    minHeight: "34px",
-    padding: "0 13px",
-    boxShadow: "0 10px 24px rgba(15, 23, 42, 0.2)",
+  document.querySelectorAll<HTMLDivElement>(`#${ROOT_ID}`).forEach((host) => {
+    host.shadowRoot?.querySelector(".nt-floating-button")?.remove();
   });
-  button.style.left = `${clamp(selection.rect.left, 8, window.innerWidth - 118)}px`;
-  button.style.top = `${top}px`;
-  button.addEventListener("click", () => openPanel(selection));
-
-  shadowRoot.querySelector(".nt-floating-button")?.remove();
-  shadowRoot.append(button);
 }
 
 async function openPanel(selection: SelectionState) {
   destroyPanelAudio();
-  hideButton();
+  removeFloatingButtons();
   const requestId = ++panelRequestId;
   panelState = {
     selection,
@@ -800,13 +738,6 @@ function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(value, max));
 }
 
-function getButtonTop(rect: DOMRect) {
-  const below = rect.bottom + 8;
-  const above = rect.top - 44;
-
-  return clamp(below > window.innerHeight - 44 ? above : below, 8, window.innerHeight - 44);
-}
-
 function getInitialPanelPosition(rect: DOMRect): PanelPosition {
   return clampPanelPosition({
     left: clamp(rect.left, 8, window.innerWidth - PANEL_WIDTH - 8),
@@ -869,30 +800,11 @@ const styles = `
     font: inherit;
   }
 
-  .nt-floating-button,
   .nt-panel {
     position: fixed;
     z-index: 2147483647;
     box-sizing: border-box;
     pointer-events: auto;
-  }
-
-  .nt-floating-button {
-    border: 1px solid #1e40af;
-    border-radius: 999px;
-    background: #2563eb;
-    color: #ffffff;
-    cursor: pointer;
-    font-size: 13px;
-    font-weight: 800;
-    line-height: 1;
-    min-height: 34px;
-    padding: 0 13px;
-    box-shadow: 0 10px 24px rgba(15, 23, 42, 0.2);
-  }
-
-  .nt-floating-button:hover {
-    background: #1d4ed8;
   }
 
   .nt-panel {
