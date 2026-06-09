@@ -50,6 +50,7 @@ let panelRequestId = 0;
 let ignoreOutsideClicksUntil = 0;
 let currentAudio: HTMLAudioElement | undefined;
 let resolveCurrentPlayback: (() => void) | undefined;
+const audioCache = new Map<string, string>();
 
 export default defineContentScript({
   matches: ["<all_urls>"],
@@ -165,7 +166,7 @@ function renderButton(selection: SelectionState, top: number) {
 }
 
 async function openPanel(selection: SelectionState) {
-  stopAudio();
+  destroyPanelAudio();
   hideButton();
   const requestId = ++panelRequestId;
   panelState = {
@@ -228,7 +229,7 @@ async function openPanelFromText(text: string, rect: DOMRect) {
 
 function closePanel() {
   panelRequestId += 1;
-  stopAudio();
+  destroyPanelAudio();
   panelState = undefined;
   shadow?.querySelector(".nt-panel")?.remove();
 }
@@ -669,6 +670,13 @@ async function playAudio(kind: "original" | "translation" | "both", explicitText
         ? panelState.selection.text
         : panelState.translation?.translatedText || "");
     const languageHint = kind === "original" ? panelState.translation?.detectedLanguage : undefined;
+    const cacheKey = getAudioCacheKey(kind, text, languageHint);
+    const cachedDataUrl = audioCache.get(cacheKey);
+
+    if (cachedDataUrl) {
+      await playDataUrl(cachedDataUrl);
+      return;
+    }
 
     const response = (await browser.runtime.sendMessage({
       type: "speak",
@@ -685,6 +693,7 @@ async function playAudio(kind: "original" | "translation" | "both", explicitText
       throw new Error(response.error);
     }
 
+    audioCache.set(cacheKey, response.data.dataUrl);
     await playDataUrl(response.data.dataUrl);
   } catch (error) {
     if (panelState) {
@@ -715,6 +724,19 @@ function startDragging(event: PointerEvent) {
 
 function isPlaybackMode(value: unknown): value is PlaybackMode {
   return value === "translation" || value === "original" || value === "both";
+}
+
+function destroyPanelAudio() {
+  stopAudio();
+  audioCache.clear();
+}
+
+function getAudioCacheKey(
+  kind: "original" | "translation",
+  text: string,
+  languageHint: string | undefined,
+) {
+  return JSON.stringify([kind, text, languageHint || ""]);
 }
 
 function stopAudio() {
