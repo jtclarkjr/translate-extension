@@ -27,5 +27,5 @@ export default defineContentScript({
 
 function openPanelFromMessage(text: string) {
   const currentSelection = getSelectionState(MAX_SELECTION_CHARS)
-  void openPanelFromText(text, currentSelection?.rect || getFallbackRect())
+  openPanelFromText(text, currentSelection?.rect || getFallbackRect())
 }

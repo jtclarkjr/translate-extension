@@ -19,6 +19,8 @@ export type PanelState = {
   error?: string
   question: string
   speaking?: 'original' | 'translation' | 'both'
+  playingKind?: 'original' | 'translation'
+  audioPreparing?: boolean
 }
 
 export type DragState = {

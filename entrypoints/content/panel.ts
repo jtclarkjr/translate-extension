@@ -1,11 +1,6 @@
-import type {
-  AskResponse,
-  SpeakResponse,
-  TranslateResponse,
-  TranslationResult
-} from '@/lib/messages'
-import { defaultSettings, type PlaybackMode } from '@/lib/settings'
-import { playDataUrl, stopAudio } from './audio'
+import type { AskResponse, AudioKind, TranslationResult } from '@/lib/messages'
+import { stopAudio } from './audio'
+import { prepareSelection } from './preparation'
 import { FONT_STACK, MAX_SELECTION_CHARS, ROOT_ID } from './constants'
 import { clampPanelPosition, getInitialPanelPosition } from './layout'
 import {
@@ -24,7 +19,9 @@ let panelState: PanelState | undefined
 let dragState: DragState | undefined
 let panelRequestId = 0
 let ignoreOutsideClicksUntil = 0
-const audioCache = new Map<string, string>()
+let preparedSelection: ReturnType<typeof prepareSelection> | undefined
+let playbackId = 0
+let questionRequestId = 0
 
 function ensureRoot() {
   if (root && shadow) {
@@ -56,14 +53,14 @@ export function removeFloatingButtons() {
   })
 }
 
-export async function openPanelFromText(text: string, rect: DOMRect) {
-  await openPanel({
+export function openPanelFromText(text: string, rect: DOMRect) {
+  openPanel({
     text: text.replace(/\s+/g, ' ').trim().slice(0, MAX_SELECTION_CHARS),
     rect
   })
 }
 
-async function openPanel(selection: SelectionState) {
+function openPanel(selection: SelectionState) {
   destroyPanelAudio()
   removeFloatingButtons()
   const requestId = ++panelRequestId
@@ -76,46 +73,59 @@ async function openPanel(selection: SelectionState) {
   ignoreOutsideClicksUntil = Date.now() + 500
   renderPanel()
 
-  let response: TranslateResponse
-
   try {
-    response = (await browser.runtime.sendMessage({
-      type: 'translate',
-      text: selection.text
-    })) as TranslateResponse
+    preparedSelection = prepareSelection(selection.text, {
+      onReset() {
+        if (requestId !== panelRequestId || !panelState) return
+        playbackId += 1
+        questionRequestId += 1
+        stopAudio()
+        panelState.translation = undefined
+        panelState.answer = undefined
+        panelState.error = undefined
+        panelState.speaking = undefined
+        panelState.audioPreparing = false
+        panelState.loading = true
+        renderPanel()
+      },
+      onTranslation(translation) {
+        if (requestId !== panelRequestId || !panelState) return
+        const firstText = !panelState.translation
+        panelState.translation = translation
+        panelState.loading = false
+        if (firstText) {
+          renderPanel()
+        } else {
+          const output = shadow?.querySelector('.nt-result-text')
+          if (output) output.textContent = translation.translatedText
+        }
+      },
+      onAudio(kind) {
+        if (requestId !== panelRequestId || !panelState) return
+        if (panelState.playingKind === kind && panelState.audioPreparing) {
+          panelState.audioPreparing = false
+          renderPanel()
+        }
+      },
+      onComplete(kind) {
+        if (requestId !== panelRequestId || !panelState || kind !== 'translation') return
+        panelState.loading = false
+        renderPanel()
+      },
+      onError(error) {
+        if (requestId !== panelRequestId || !panelState) return
+        panelState.error = error
+        panelState.loading = false
+        renderPanel()
+      }
+    })
   } catch (error) {
-    if (requestId !== panelRequestId || !panelState) {
-      return
-    }
-
-    panelState = {
-      ...panelState,
-      loading: false,
-      error: error instanceof Error ? error.message : 'Unable to request translation.'
-    }
-    renderPanel()
-    return
-  }
-
-  if (requestId !== panelRequestId || !panelState) {
-    return
-  }
-
-  if (response.ok) {
-    panelState = {
-      ...panelState,
-      translation: response.data,
-      loading: false
-    }
-  } else {
-    panelState = {
-      ...panelState,
-      loading: false,
-      error: response.error
+    if (panelState) {
+      panelState.loading = false
+      panelState.error = error instanceof Error ? error.message : 'Unable to request translation.'
+      renderPanel()
     }
   }
-
-  renderPanel()
 }
 
 function closePanel() {
@@ -196,18 +206,13 @@ function renderPanel() {
 
   panel.append(renderHeader())
 
-  if (panelState.loading) {
-    panel.append(renderStatus('Translating selected text...'))
-  } else if (panelState.error) {
-    panel.append(renderError(panelState.error))
-  } else if (panelState.translation) {
-    panel.append(renderTranslation(panelState.translation))
-    panel.append(renderActions(panelState.translation))
+  if (panelState.loading) panel.append(renderStatus('Preparing translation...'))
+  if (panelState.error) panel.append(renderError(panelState.error))
+  if (panelState.translation) panel.append(renderTranslation(panelState.translation))
+  if (preparedSelection) panel.append(renderActions(panelState.translation))
+  if (panelState.translation) {
     panel.append(renderQuestionForm())
-
-    if (panelState.answer) {
-      panel.append(renderAnswer(panelState.answer))
-    }
+    if (panelState.answer) panel.append(renderAnswer(panelState.answer))
   }
 
   shadowRoot.append(panel)
@@ -313,7 +318,7 @@ function renderTranslation(translation: TranslationResult) {
   return wrapper
 }
 
-function renderActions(translation: TranslationResult) {
+function renderActions(translation?: TranslationResult) {
   const group = document.createElement('div')
   group.className = 'nt-actions'
   setElementStyles(group, {
@@ -322,18 +327,27 @@ function renderActions(translation: TranslationResult) {
     gap: '8px',
     margin: '14px 18px'
   })
-  group.append(
-    actionButton('Play original', () => playAudio('original')),
-    actionButton('Play translation', () => playAudio('translation', translation.translatedText)),
-    actionButton('Play default', playDefaultAudio),
-    actionButton('Stop sound', stopAudio),
-    actionButton('Copy', () => navigator.clipboard.writeText(translation.translatedText))
-  )
+  if (preparedSelection?.voiceEnabled) {
+    group.append(
+      actionButton('Play original', () => playAudio('original')),
+      actionButton('Play translation', () => playAudio('translation')),
+      actionButton('Play default', playDefaultAudio),
+      actionButton('Stop sound', stopPanelSound)
+    )
+  }
+  if (translation) {
+    group.append(
+      actionButton('Copy', () =>
+        navigator.clipboard.writeText(panelState?.translation?.translatedText || '')
+      )
+    )
+  }
 
   if (panelState?.speaking) {
     const status = document.createElement('span')
     status.className = 'nt-speaking'
-    status.textContent = 'Generating voice...'
+    status.textContent = panelState.audioPreparing ? 'Preparing audio...' : 'Playing audio...'
+    status.setAttribute('role', 'status')
     setElementStyles(status, {
       alignSelf: 'center',
       color: '#64748b',
@@ -444,98 +458,70 @@ async function askQuestion(question: string) {
   }
 
   const requestId = panelRequestId
+  const questionId = ++questionRequestId
   panelState.answer = undefined
   panelState.error = undefined
   renderPanel()
 
-  const response = (await browser.runtime.sendMessage({
-    type: 'ask',
-    text: panelState.selection.text,
-    question: trimmedQuestion
-  })) as AskResponse
+  try {
+    const response = (await browser.runtime.sendMessage({
+      type: 'ask',
+      text: panelState.selection.text,
+      question: trimmedQuestion
+    })) as AskResponse
 
-  if (requestId !== panelRequestId || !panelState) {
-    return
-  }
-
-  if (response.ok) {
-    panelState.answer = response.data.answer
-  } else {
-    panelState.error = response.error
+    if (requestId !== panelRequestId || questionId !== questionRequestId || !panelState) return
+    if (response.ok) panelState.answer = response.data.answer
+    else panelState.error = response.error
+  } catch (error) {
+    if (requestId !== panelRequestId || questionId !== questionRequestId || !panelState) return
+    panelState.error =
+      error instanceof Error ? error.message : 'Unable to ask a follow-up question.'
   }
 
   renderPanel()
 }
 
-async function playDefaultAudio() {
-  const stored = await browser.storage.local.get(defaultSettings)
-  const mode = isPlaybackMode(stored.playbackMode)
-    ? stored.playbackMode
-    : defaultSettings.playbackMode
-
-  if (mode === 'both') {
-    await playAudio('both')
-    return
-  }
-
-  await playAudio(mode)
+function playDefaultAudio() {
+  return playAudio(preparedSelection?.playbackMode || 'translation')
 }
 
-async function playAudio(kind: 'original' | 'translation' | 'both', explicitText?: string) {
-  if (!panelState) {
-    return
-  }
-
+function stopPanelSound() {
+  playbackId += 1
   stopAudio()
+  if (panelState) {
+    panelState.speaking = undefined
+    panelState.audioPreparing = false
+    renderPanel()
+  }
+}
+
+async function playAudio(kind: 'original' | 'translation' | 'both') {
+  if (!panelState || !preparedSelection) return
+  stopAudio()
+  const id = ++playbackId
+  const prepared = preparedSelection
   panelState.speaking = kind
   panelState.error = undefined
-  renderPanel()
 
   try {
-    if (kind === 'both') {
-      await playAudio('original')
-      await playAudio('translation', panelState.translation?.translatedText)
-      return
+    const sequence: AudioKind[] = kind === 'both' ? ['original', 'translation'] : [kind]
+    for (const part of sequence) {
+      if (id !== playbackId || !panelState) return
+      panelState.playingKind = part
+      panelState.audioPreparing = !prepared.hasAudio(part)
+      renderPanel()
+      await prepared.play(part)
     }
-
-    const text =
-      explicitText ||
-      (kind === 'original'
-        ? panelState.selection.text
-        : panelState.translation?.translatedText || '')
-    const languageHint = kind === 'original' ? panelState.translation?.detectedLanguage : undefined
-    const cacheKey = getAudioCacheKey(kind, text, languageHint)
-    const cachedDataUrl = audioCache.get(cacheKey)
-
-    if (cachedDataUrl) {
-      await playDataUrl(cachedDataUrl)
-      return
-    }
-
-    const response = (await browser.runtime.sendMessage({
-      type: 'speak',
-      text,
-      languageHint,
-      purpose: kind
-    })) as SpeakResponse
-
-    if (!panelState) {
-      return
-    }
-
-    if (!response.ok) {
-      throw new Error(response.error)
-    }
-
-    audioCache.set(cacheKey, response.data.dataUrl)
-    await playDataUrl(response.data.dataUrl)
   } catch (error) {
-    if (panelState) {
+    if (id === playbackId && panelState) {
       panelState.error = error instanceof Error ? error.message : 'Unable to play audio.'
     }
   } finally {
-    if (panelState) {
+    if (id === playbackId && panelState) {
       panelState.speaking = undefined
+      panelState.playingKind = undefined
+      panelState.audioPreparing = false
       renderPanel()
     }
   }
@@ -556,19 +542,9 @@ function startDragging(event: PointerEvent) {
   event.preventDefault()
 }
 
-function isPlaybackMode(value: unknown): value is PlaybackMode {
-  return value === 'translation' || value === 'original' || value === 'both'
-}
-
 function destroyPanelAudio() {
+  playbackId += 1
   stopAudio()
-  audioCache.clear()
-}
-
-function getAudioCacheKey(
-  kind: 'original' | 'translation',
-  text: string,
-  languageHint: string | undefined
-) {
-  return JSON.stringify([kind, text, languageHint || ''])
+  preparedSelection?.dispose()
+  preparedSelection = undefined
 }

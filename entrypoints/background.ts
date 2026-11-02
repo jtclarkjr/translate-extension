@@ -1,9 +1,11 @@
 import type { ExtensionRequest } from '@/lib/messages'
-import { askAboutText, fail, ok, speakText, translateText } from '@/lib/openai'
+import { askAboutText, fail, ok, translateText } from '@/lib/ai'
+import { handlePreparationPort } from '@/lib/preparation'
 import { getSettings } from '@/lib/settings'
 
 export default defineBackground(() => {
   browser.runtime.onMessage.addListener((message: ExtensionRequest) => handleMessage(message))
+  browser.runtime.onConnect.addListener(handlePreparationPort)
   void setupContextMenu()
   browser.contextMenus.onClicked.addListener((info, tab) => {
     void handleContextMenuClick(info, tab)
@@ -58,7 +60,8 @@ async function handleMessage(message: ExtensionRequest) {
 
     if (message.type === 'translate') {
       const result = await translateText({
-        apiKey: settings.openaiApiKey,
+        provider: settings.provider,
+        config: settings.providers[settings.provider],
         text: message.text,
         targetLanguage: message.targetLanguage || settings.targetLanguage,
         sourceHint: message.sourceHint
@@ -69,29 +72,14 @@ async function handleMessage(message: ExtensionRequest) {
 
     if (message.type === 'ask') {
       const answer = await askAboutText({
-        apiKey: settings.openaiApiKey,
+        provider: settings.provider,
+        config: settings.providers[settings.provider],
         text: message.text,
         question: message.question,
         targetLanguage: message.targetLanguage || settings.targetLanguage
       })
 
       return ok({ answer })
-    }
-
-    if (message.type === 'speak') {
-      if (!settings.ttsEnabled) {
-        throw new Error('Voice is disabled in extension settings.')
-      }
-
-      const audio = await speakText({
-        apiKey: settings.openaiApiKey,
-        text: message.text,
-        languageHint: message.languageHint,
-        voice: message.voice || settings.voice,
-        purpose: message.purpose
-      })
-
-      return ok(audio)
     }
 
     return fail('Unknown extension request.')

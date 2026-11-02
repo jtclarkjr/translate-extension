@@ -1,7 +1,7 @@
 # Natural Translator Extension
 
 Chromium-first browser extension for selected-text translation, pronunciation, and follow-up
-questions with the OpenAI API.
+questions through Vercel AI SDK, using OpenAI directly or Vercel AI Gateway.
 
 ## Development
 
@@ -14,8 +14,28 @@ vp run dev
 vp run build
 ```
 
-The extension stores the user's OpenAI API key in `chrome.storage.local`. The key is not committed
-or bundled as a shared secret.
+Choose **OpenAI** or **Vercel AI Gateway** in the popup. Only the selected provider's key and
+models are shown. Each provider retains its own credentials and model choices when switched.
+Use an OpenAI key for direct access, or a Gateway key for Vercel; the keys are not interchangeable.
+Credentials stay in extension-local storage and trusted background operations, and are not sent
+to page content scripts or bundled as a shared secret.
+
+The text model is used for follow-up questions and translation with voice disabled. Voice-enabled
+translation uses the realtime model to prepare a matching transcript and spoken audio together.
+The initial text models are `gpt-6-luna` / `openai/gpt-6-luna`; realtime defaults are
+`gpt-realtime-2.1-mini` / `openai/gpt-realtime-2`. Edit compatible model IDs in the popup to upgrade
+without rebuilding. GPT-Live and audio-input translation models require different session protocols.
+
+Opening the translation panel prepares audio silently, so audio generation is billed even if you
+never press Play. Play uses audio already buffered and continues receiving chunks while playing.
+Stop halts playback; replay uses the same audio. Closing the panel cancels generation and discards
+its buffer. Provider, model, language, and voice changes re-prepare an open panel. Original
+pronunciation is prepared ahead of time when included in the default voice action, otherwise on
+demand. No microphone access is used.
+
+Model availability depends on your provider account. New models can be selected as long as they
+support the chosen text or realtime API. Gateway realtime calls use a dedicated extension worker
+on Firefox/Safari background pages, keeping the same SDK implementation as Chromium.
 
 Load the built Chromium extension from `.output/chrome-mv3`.
 
@@ -48,7 +68,7 @@ To build and test locally:
    quits — re-enable per session).
 4. Safari → Settings → Extensions → enable **Natural Translator**.
 5. Grant site access when prompted ("Always Allow on Every Website" for testing) and approve access
-   to `api.openai.com`.
+   to the active provider (`api.openai.com` or `ai-gateway.vercel.sh`).
 
 The app builds with ad-hoc signing ("Sign to Run Locally") and needs no Apple Developer team for
 local use. Distributing the app to others requires Developer ID signing and notarization.

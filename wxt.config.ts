@@ -7,7 +7,7 @@ export default defineConfig({
     name: 'Natural Translator',
     description: 'Translate selected text, hear pronunciation, and ask follow-up questions.',
     permissions: ['storage', 'contextMenus', 'scripting', 'activeTab'],
-    host_permissions: ['https://api.openai.com/*'],
+    host_permissions: ['https://api.openai.com/*', 'https://ai-gateway.vercel.sh/*'],
     action: {
       default_title: 'Natural Translator'
     }
